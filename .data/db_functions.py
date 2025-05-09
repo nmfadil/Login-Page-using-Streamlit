@@ -1,117 +1,100 @@
-import sqlite3
+import streamlit as st
+from supabase import create_client
+import hashlib
 
-DB_PATH = "users.db"
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def connect_db():
-    return sqlite3.connect(DB_PATH)
+DEBUG = True
 
-def print_users_table():
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users")
-    users = cursor.fetchall()
+# Hashing function
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-    if users:
-        print("\nRegistered Users:\n")
-        print("{:<15} {:<20} {:<20}".format("Username", "Full Name", "Password"))
-        print("-" * 60)
-        for user in users:
-            print("{:<15} {:<20} {:<20}".format(user[0], user[1], user[2]))
-    else:
-        print("No users found.")
+# Add a new user
+def add_user(username, name, password):
+    if not DEBUG:
+        password = hash_password(password)
+    data = {
+        "username": username,
+        "name": name,
+        "password": password
+    }
+    res = supabase.table("users").insert(data).execute()
+    return res
 
-    conn.close()
+# Authenticate login
+def authenticate_user(username, password):
+    if not DEBUG:
+        password = hash_password(password)
+    res = supabase.table("users").select("name").eq("username", username).eq("password", password).execute()
+    if res.data:
+        return res.data[0]["name"]
+    return None
 
-def search_user(username):
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    user = cursor.fetchone()
+# Sign-up page
+def display_signup_page():
+    st.title("Sign Up")
+    new_name = st.text_input("Full Name")
+    new_username = st.text_input("Choose a Username")
+    new_password = st.text_input("Choose a Password", type="password")
 
-    if user:
-        print("\nUser found:")
-        print(f"Username: {user[0]}")
-        print(f"Full Name: {user[1]}")
-        print(f"Password: {user[2]}")
-    else:
-        print(f"\nUser '{username}' not found.")
-
-    conn.close()
-
-def delete_user(username):
-    conn = connect_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    user = cursor.fetchone()
-
-    if not user:
-        print(f"\nUser '{username}' does not exist.")
-    else:
-        cursor.execute("DELETE FROM users WHERE username = ?", (username,))
-        conn.commit()
-        print(f"\nUser '{username}' deleted.")
-
-    conn.close()
-
-# --- Menu for terminal use ---
-if __name__ == "__main__":
-    while True:
-        print("\n--- User Database Menu ---")
-        print("1. View all users")
-        print("2. Search for a user")
-        print("3. Delete a user")
-        print("4. Exit")
-        choice = input("Enter your choice (1-4): ").strip()
-
-        if choice == "1":
-            print_users_table()
-        elif choice == "2":
-            username = input("Enter username to search: ").strip()
-            search_user(username)
-        elif choice == "3":
-            username = input("Enter username to delete: ").strip()
-            confirm = input(f"Are you sure you want to delete '{username}'? (y/n): ").strip().lower()
-            if confirm == "y":
-                delete_user(username)
+    if st.button("Sign Up"):
+        if new_username and new_password and new_name:
+            # Check if username already exists
+            existing_user = supabase.table("users").select("id").eq("username", new_username).execute()
+            if existing_user.data:
+                st.error("Username already exists. Choose a different one.")
             else:
-                print("Deletion cancelled.")
-        elif choice == "4":
-            print("Exiting...")
-            break
+                res = add_user(new_username, new_name, new_password)
+                if res.data:
+                    st.success("Account created! You can now log in.")
+                else:
+                    st.error("Signup failed.")
+                    if DEBUG:
+                        st.json(res.model_dump())  # Show raw error for debugging
         else:
-            print("Invalid choice. Please enter 1-4.")
+            st.warning("Please fill all fields.")
 
+# Login page
+def display_login_page():
+    st.title("Login to Information Retrieval System")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
 
+    if st.button("Login"):
+        user = authenticate_user(username, password)
+        if user:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = username
+            st.session_state["user_fullname"] = user
+            st.success(f"Logged in as {user}")
+            st.rerun()
+        else:
+            st.error("Incorrect username or password")
 
+# Main app after login
+def display_main_app():
+    st.title("Welcome to the Information Retrieval System")
+    st.write(f"Hello, {st.session_state['user_fullname']}!")
 
+    st.write("This is where your app functionality goes.")
 
-# import sqlite3
+    if st.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
 
-# # Path to your database
-# DB_PATH = "users.db"
+# Session and menu control
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
 
-# def print_users_table():
-#     conn = sqlite3.connect(DB_PATH)
-#     cursor = conn.cursor()
+menu = st.sidebar.selectbox("Menu", ["Login", "Sign Up"] if not st.session_state["logged_in"] else ["Home"])
 
-#     # Confirm the table exists
-#     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';")
-#     if cursor.fetchone():
-#         cursor.execute("SELECT * FROM users")
-#         users = cursor.fetchall()
-
-#         if users:
-#             print("\nRegistered Users:\n")
-#             print("{:<15} {:<20} {:<20}".format("Username", "Full Name", "Password"))
-#             print("-" * 60)
-#             for user in users:
-#                 print("{:<15} {:<20} {:<20}".format(user[0], user[1], user[2]))
-#         else:
-#             print("No users found.")
-#     else:
-#         print("Table 'users' does not exist.")
-
-#     conn.close()
-
-# if __name__ == "__main__":
-#     print_users_table()
+if not st.session_state["logged_in"]:
+    if menu == "Login":
+        display_login_page()
+    else:
+        display_signup_page()
+else:
+    display_main_app()
